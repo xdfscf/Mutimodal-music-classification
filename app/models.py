@@ -27,7 +27,7 @@ class Albums(db.Model):
     __tablename__ = 'albums'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     album_name = db.Column(db.String(100), index=True)
-    publish_year=db.Column(db.Integer, default=0)
+    publish_year = db.Column(db.DateTime, default=datetime(1800, 1, 1))
     album_wiki=db.Column(db.String(3000),default="blank",index=True)
     reviews=db.relationship('Album_reviews', secondary=album_review_relation,
                                backref=db.backref('review_albums', lazy='dynamic'))
@@ -149,6 +149,32 @@ class Pianists(db.Model):
     gender = db.Column(db.String(10), default="blank", index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
+class Mixers(db.Model):
+    __tablename__ = 'mixers'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    mixer_name = db.Column(db.String(100), index=True)
+    wikipedia = db.Column(db.String(3000), default="blank", index=True)
+    gender = db.Column(db.String(10), default="blank", index=True)
+    Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
+
+class Electric_guitarists(db.Model):
+    __tablename__ = 'electric_guitarists'
+    id=db.Column(db.Integer, primary_key=True,autoincrement = True)
+    electric_guitarist_name=db.Column(db.String(100), index=True)
+    wikipedia = db.Column(db.String(3000), default="blank", index=True)
+    gender = db.Column(db.String(10), default="blank", index=True)
+    Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
+
+electric_guitarist_relation = db.Table('electric_guitarist_relation',
+    db.Column('electric_guitarist_id', db.Integer, db.ForeignKey('electric_guitarists.id')),
+    db.Column('music_id', db.Integer, db.ForeignKey('music.id'))
+)
+
+mixer_relation = db.Table('mixer_relation',
+    db.Column('mixer_id', db.Integer, db.ForeignKey('mixers.id')),
+    db.Column('music_id', db.Integer, db.ForeignKey('music.id'))
+)
+
 pianist_relation = db.Table('pianist_relation',
     db.Column('pianist_id', db.Integer, db.ForeignKey('pianists.id')),
     db.Column('music_id', db.Integer, db.ForeignKey('music.id'))
@@ -187,6 +213,8 @@ class Music(db.Model):
     tags = db.Column(db.String(100), default="blank", index=True)
     album_id = db.Column(db.Integer, db.ForeignKey('albums.id'))
     genre=db.Column(db.String(30))
+    mixer= db.relationship('Mixers', secondary=mixer_relation,
+                           backref=db.backref('mixer_musics', lazy='dynamic'))
     writer = db.relationship('Writers', secondary=writer_relation,
                            backref=db.backref('writer_musics', lazy='dynamic'))
     drummer = db.relationship('Drummers', secondary=drummer_relation,
@@ -195,6 +223,8 @@ class Music(db.Model):
                            backref=db.backref('pianist_musics', lazy='dynamic'))
     guitarist = db.relationship('Guitarists', secondary=guitarist_relation,
                             backref=db.backref('guitarist_musics', lazy='dynamic'))
+    electric_guitarist = db.relationship('Electric_guitarists', secondary=electric_guitarist_relation,
+                            backref=db.backref('electric_guitarist_musics', lazy='dynamic'))
     audio_file_name=db.Column(db.String(100), default="blank", index=True)
     reviews=db.relationship('Music_reviews', secondary=music_review_relation,
                                backref=db.backref('review_music', lazy='dynamic'))
