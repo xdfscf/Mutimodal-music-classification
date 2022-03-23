@@ -203,16 +203,27 @@ music_review_relation = db.Table('music_review_relation',
     db.Column('music_review_id', db.Integer, db.ForeignKey('music_reviews.id')),
     db.Column('music_id', db.Integer, db.ForeignKey('music.id'))
 )
+class Music_tag(db.Model):
+    __tablename__ = 'music_tag'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tag_name=db.Column(db.String(40), index=True)
+    tag_s_musics = db.relationship("Music_and_tag_relation", back_populates="musics")
+
+class Music_and_tag_relation(db.Model):
+    __tablename__ = 'music_and_tag_relation'
+    music_id = db.Column(db.Integer, db.ForeignKey('music.id'), primary_key=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey('music_tag.id'), primary_key=True)
+    weight=db.Column(db.Integer)
+    musics = db.relationship("Music_tag", back_populates="tag_s_musics")
+    tags = db.relationship("Music", back_populates="music_s_tags")
+
 class Music(db.Model):
     __tablename__ = 'music'
     id = db.Column(db.Integer, primary_key=True,autoincrement = True)
     music_name= db.Column(db.String(100), index=True)
-    sales = db.Column(db.Integer,default=-1)
     music_story=db.Column(db.String(3000),default="blank",index=True)
     lyric=db.Column(db.String(3000),default="blank",index=True)
-    tags = db.Column(db.String(100), default="blank", index=True)
     album_id = db.Column(db.Integer, db.ForeignKey('albums.id'))
-    genre=db.Column(db.String(30))
     mixer= db.relationship('Mixers', secondary=mixer_relation,
                            backref=db.backref('mixer_musics', lazy='dynamic'))
     writer = db.relationship('Writers', secondary=writer_relation,
@@ -226,5 +237,7 @@ class Music(db.Model):
     electric_guitarist = db.relationship('Electric_guitarists', secondary=electric_guitarist_relation,
                             backref=db.backref('electric_guitarist_musics', lazy='dynamic'))
     audio_file_name=db.Column(db.String(100), default="blank", index=True)
+    yt_link=db.Column(db.String(100), default="blank", index=True)
     reviews=db.relationship('Music_reviews', secondary=music_review_relation,
                                backref=db.backref('review_music', lazy='dynamic'))
+    music_s_tags=db.relationship("Music_and_tag_relation", back_populates="tags")
