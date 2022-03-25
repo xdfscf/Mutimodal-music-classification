@@ -16,7 +16,7 @@ from selenium.webdriver import ChromeOptions
 from lyricsgenius import Genius
 from selenium import webdriver
 # 在单词表里用index记录文档，提取文档时用url_dic[urls[index]][0]
-
+from pytube import YouTube
 import os
 
 
@@ -83,7 +83,7 @@ def search_url_parse(keywords, strcode, website):
             single_term = '+'.join(single_name)
             artist = artist.split(' ')
             artist_term = '+'.join(artist)
-            url = "https://www.youtube.com/results?search_query=" + single_term + artist_term
+            url = "https://www.youtube.com/results?search_query=" + single_term +'+'+ artist_term
     # we don't need this part as I use the api of genius
     '''
     if website=="genius":
@@ -117,10 +117,12 @@ def musicbrainz_artist_relationship_extract(relation_url):
         trs = table.find_all("tr")
         for tr in trs:
             if (tr.find("th").get_text()) in key_info.keys():
-                info_list = []
-                for a in tr.find("td").find_all("a"):
-                    info_list.append(a.find("bdi").get_text())
-                key_info[tr.find("th").get_text()] = info_list
+                if len(tr.find("td").find_all("a"))!=0:
+                    info_list = []
+                    for a in tr.find("td").find_all("a"):
+                        info_list.append(a.get_text())
+                    key_info[tr.find("th").get_text()] = info_list
+
     return key_info
 
 
@@ -169,7 +171,13 @@ def musicbrainz_wiki_content_extract(soup_page):
 
 
 def musicbrainz_album_url_extract(soup_page):
-    table = soup_page.find("table", class_=["tbl", "release-group-list"])
+    form=soup_page.find("form")
+    tables = soup_page.find_all("table", class_=["tbl", "release-group-list"])
+    h3s=soup_page.find_all("h3")
+    table=None
+    for h3 in range(len(h3s)):
+        if h3s[h3].get_text()=="Album":
+            table=tables[h3]
     trs = table.find_all("tr")
     url_dic = {}
     for tr in trs[1:]:
@@ -179,12 +187,13 @@ def musicbrainz_album_url_extract(soup_page):
         url_dic[url] = name
 
     new_url_dic = {}
-    if len(url_dic) > 6:
+    if len(url_dic) > 3:
 
-        random_albums = random.sample(list(url_dic), 6)
+        random_albums = random.sample(list(url_dic), 3)
         for i in random_albums:
             new_url_dic[i] = url_dic[i]
         url_dic = new_url_dic
+
     return url_dic
 
 
@@ -214,54 +223,193 @@ def genius_info_extract(keywords):
 
 
 def download_yt_audio(keywords):
+    time.sleep(3)
     url = search_url_parse(keywords, "111", "youtube")
     soup = request_page_with_webdriver(url, "youtube")
     links = soup.find_all("a", id="video-title")
+    keyword_list = keywords['single'].lower().split(' ') + keywords['artist'].lower().split(' ')
+
     for link in links:
+        counter = 0
         print(link.get_text())
-    time.sleep(2)
-    exit(0)
+        video_keywords = link.get_text().lower().split(' ')
+        for i in keyword_list:
+            if i in video_keywords:
+                counter += 1
+        if counter >= 0.5 * len(keyword_list):
+            yt_url = "https://www.youtube.com/" + link['href']
+            yt = YouTube(yt_url)
+
+            # extract only audio
+            video = yt.streams.filter(only_audio=True).first()
+
+            out_file = video.download(output_path='./audios')
+
+            base, ext = os.path.splitext(out_file)
+            new_file = base + '.mp3'
+            os.rename(out_file, new_file)
+            # result of success
+            print(yt.title + " has been successfully downloaded.")
+
+            return yt_url, new_file
+
+    return None, None
 
 
 def musicbrainz_album_songs_info_extract(url, keywords, album):
     soup = request_page_with_webdriver(url, "musicbrainz")
     songs_info = soup.find_all("td", class_="title")
-
+    counter=0
     for song_info in songs_info:
-        print(song_info)
-        info_dic = {"drums (drum set)": [], "electric guitar": [], "electric bass guitar": [], "writer:": [],
-                    "mixer:": [], "assistant mixer:": []
-            , "acoustic guitar": [], "lyricist and composer:": []}
+        counter+=1
+
+        exist=False
+
         song_name = song_info.find('a').find('bdi').get_text()
-        keywords["single"] = song_name
-        dt_list = song_info.find_all('dt')
-        dd_list = song_info.find_all('dd')
-        for i in range(len(dt_list)):
-            if len(dt_list[i].find_all('a')) != 0:
-                for a in dt_list[i].find_all('a'):
-                    if a.get_text() in info_dic.keys():
+        song_query = album.music.all()
+        if len(song_query)!=0:
+            for single in song_query:
+                if single.music_name == song_name:
+                    exist = True
+
+        if not exist:
+            keywords["single"] = song_name
+            info_dic = {"drums (drum set)": [], "electric guitar": [], "electric bass guitar": [], "writer:": [],
+                        "mixer:": [], "assistant mixer:": []
+                , "acoustic guitar": [], "lyricist and composer:": [], "guitar": [], "piano": []}
+            dt_list = song_info.find_all('dt')
+            dd_list = song_info.find_all('dd')
+            for i in range(len(dt_list)):
+                if len(dt_list[i].find_all('a')) != 0:
+                    for a in dt_list[i].find_all('a'):
+                        if a.get_text() in info_dic.keys():
+                            for dd in dd_list[i].find_all('a'):
+                                info_dic[a.get_text()].append(dd.find('bdi').get_text())
+                else:
+                    if dt_list[i].get_text() in info_dic.keys():
                         for dd in dd_list[i].find_all('a'):
-                            info_dic[a.get_text()].append(dd.find('bdi').get_text())
-            else:
-                if dt_list[i].get_text() in info_dic.keys():
-                    for dd in dd_list[i].find_all('a'):
-                        info_dic[dt_list[i].get_text()].append(dd.find('bdi').get_text())
-        song_link = song_info.find('a')['href']
-        tags = musicbrainz_artist_tag_extract("https://musicbrainz.org/" + song_link + '/tags')
-        for tag in tags.keys():
-            if len(models.Music_tag.query.filter_by(tag_name=tag).all()) == 0:
-                new_tag = models.Music_tag(tag_name=tag)
-                db.session.add(new_tag)
+                            info_dic[dt_list[i].get_text()].append(dd.find('bdi').get_text())
+            song_link = song_info.find('a')['href']
+
+            yt_url, file_name = download_yt_audio(keywords)
+            # song_facts_url=search_url_parse(keywords,"111", "songfacts")
+            # song_facts_info_extract(song_facts_url, keywords)
+            # genius_url=search_url_parse(keywords,"111", "genius")
+            song_lyric = genius_info_extract(keywords)
+            new_song=models.Music(music_name=song_name,lyric=song_lyric,audio_file_name=file_name,yt_link=yt_url)
+            db.session.add(new_song)
+            db.session.commit()
+            album.music.append(new_song)
+            db.session.commit()
+
+            tags = musicbrainz_artist_tag_extract("https://musicbrainz.org/" + song_link + '/tags')
+            for tag in tags.keys():
+                tag_query=models.Music_tag.query.filter_by(tag_name=tag).all()
+                tag_entity=None
+                if len(tag_query) == 0:
+                    tag_entity = models.Music_tag(tag_name=tag)
+                    db.session.add(tag_entity)
+                    db.session.commit()
+                else:
+                    tag_entity=tag_query[0]
+                m_t_relation=models.Music_and_tag_relation(music_id=new_song.id,tag_id=tag_entity.id,weight=tags[tag])
+                db.session.add(m_t_relation)
                 db.session.commit()
-        download_yt_audio(keywords)
-        # song_facts_url=search_url_parse(keywords,"111", "songfacts")
-        # song_facts_info_extract(song_facts_url, keywords)
-        # genius_url=search_url_parse(keywords,"111", "genius")
-        song_lyric = genius_info_extract(keywords)
+
+            drummers=info_dic["drums (drum set)"]
+            elect_guitars=info_dic["electric guitar"]+info_dic["electric bass guitar"]
+            guitars=info_dic["acoustic guitar"]+info_dic["guitar"]
+            mixers=info_dic["mixer:"]+info_dic["assistant mixer:"]
+            writers=info_dic["writer:"]
+            pianos=info_dic["piano"]
+
+            if len(drummers)!=0:
+                for drummer in drummers:
+                    drummer_query=models.Drummers.query.filter_by(drummer_name=drummer).all()
+                    drummer_entity=None
+                    if len(drummer_query)==0:
+                        drummer_entity=models.Drummers(drummer_name=drummer)
+                        db.session.add(drummer_entity)
+                        db.session.commit()
+                    else:
+                        drummer_entity=drummer_query[0]
+                    new_song.drummer.append(drummer_entity)
+                    new_song.include_drummer=True
+
+
+            if len(elect_guitars)!=0:
+                for elect_guitar in elect_guitars:
+                    elect_guitar_query=models.Electric_guitarists.query.filter_by(electric_guitarist_name=elect_guitar).all()
+                    elect_guitar_entity=None
+                    if len(elect_guitar_query)==0:
+                        elect_guitar_entity=models.Electric_guitarists(electric_guitarist_name=elect_guitar)
+                        db.session.add(elect_guitar_entity)
+                        db.session.commit()
+                    else:
+                        elect_guitar_entity=elect_guitar_query[0]
+                    new_song.electric_guitarist.append(elect_guitar_entity)
+                    new_song.include_electric_guitarist=True
+
+
+            if len(guitars)!=0:
+                for guitar in guitars:
+                    guitar_query=models.Guitarists.query.filter_by(guitarist_name=guitar).all()
+                    guitar_entity=None
+                    if len(guitar_query)==0:
+                        guitar_entity=models.Guitarists(guitarist_name=guitar)
+                        db.session.add(guitar_entity)
+                        db.session.commit()
+                    else:
+                        guitar_entity=guitar_query[0]
+                    new_song.guitarist.append(guitar_entity)
+                    new_song.include_guitarist=True
+
+            if len(mixers)!=0:
+                for mixer in mixers:
+                    mixer_query=models.Mixers.query.filter_by(mixer_name=mixer).all()
+                    mixer_entity=None
+                    if len(mixer_query)==0:
+                        mixer_entity=models.Mixers(mixer_name=mixer)
+                        db.session.add(mixer_entity)
+                        db.session.commit()
+                    else:
+                        mixer_entity=mixer_query[0]
+                    new_song.mixer.append(mixer_entity)
+                    new_song.include_mixer=True
+
+
+            if len(writers)!=0:
+                for writer in writers:
+                    writer_query=models.Writers.query.filter_by(writer_name=writer).all()
+                    writer_entity=None
+                    if len(writer_query)==0:
+                        writer_entity=models.Writers(writer_name=writer)
+                        db.session.add(writer_entity)
+                        db.session.commit()
+                    else:
+                        writer_entity=writer_query[0]
+                    new_song.writer.append(writer_entity)
+
+
+            if len(pianos)!=0:
+                for piano in pianos:
+                    piano_query=models.Pianists.query.filter_by(pianist_name=piano).all()
+                    piano_entity=None
+                    if len(piano_query)==0:
+                        piano_entity=models.Pianists(pianist_name=piano)
+                        db.session.add(piano_entity)
+                        db.session.commit()
+                    else:
+                        piano_entity=piano_query[0]
+                    new_song.pianist.append(piano_entity)
+                    new_song.include_pianist=True
+
+
+            db.session.commit()
+        if counter>=5:
+            return
         '''
-        song_query = models.Music.query.filter_by(music_name=keywords["single"], publish_year=publish_year,
-                                                    album_wiki=wiki_content, album_rating=info_dic["score"]
-                                                    , rate_number=info_dic["rate_number"]).all()
+        
         album = None
         if len(album_query) != 0:
             return
@@ -269,6 +417,7 @@ def musicbrainz_album_songs_info_extract(url, keywords, album):
                               album_rating=info_dic["score"]
                               , rate_number=info_dic["rate_number"])
         '''
+    return
 
 
 def musicbrainz_album_info_extract(url_dic, artist):
@@ -391,74 +540,105 @@ def rateyourmusic_soup_page_info_extract(strcode, keywords, url):
         return info_dic
 
 
-def musicbrainz_soup_page_info_extract(strcode, url):
-    if strcode == "010":
-        request_page_with_webdriver(url, "musicbrainz")
-        soup = request_page(url)
-        url_dic = musicbrainz_album_url_extract(soup)
-        name = soup.find('div', class_=['artistheader', 'person-icon']).find("bdi").get_text()
-        property = soup.find('dl', class_='properties')
-        # name = property.find('dd', class_='sort-name').get_text()
-        gender = property.find('dd', class_='gender').get_text()
-        born = property.find('dd', class_='begin-date').get_text()
-        born = born.split(' ')[0]
-        born = datetime.date(*map(int, born.split('-')))
-        print(name, gender, born)
-        artist_query = models.Artist.query.filter_by(artist_name=name, gender=gender, Born=born).all()
-        artist = None
-        if len(artist_query) != 0:
-            artist = artist_query[0]
-            musicbrainz_album_info_extract(url_dic, artist)
-            return
-
-        wiki_content = musicbrainz_wiki_content_extract(soup)
-        tabs = soup.find('ul', class_='tabs')
-        tabs = tabs.find_all('a')
-        relation_url = "https://musicbrainz.org/" + tabs[5]['href']
-        key_info = musicbrainz_artist_relationship_extract(relation_url)
-        tags_url = "https://musicbrainz.org/" + tabs[7]['href']
-        tagDic = musicbrainz_artist_tag_extract(tags_url)
-
-        artist = models.Artist(artist_name=name, gender=gender, Born=born, wikipedia=wiki_content, tags=str(tagDic))
-        db.session.add(artist)
-        db.session.commit()
-        if key_info["member of:"] != 0:
-            for i in key_info["member of:"]:
-                band = None
-                if len(models.Bands.query.filter_by(band_name=i).all()) == 0:
-                    band = models.Bands(band_name=i)
-                    db.session.add(band)
-                else:
-                    band = models.Bands.query.filter_by(band_name=i).first()
-                artist.band.append(band)
-                db.session.commit()
-
-        if key_info["tours:"] != 0:
-            for i in key_info["tours:"]:
-                tour = None
-                if len(models.Tours.query.filter_by(tour_name=i).all()) == 0:
-                    tour = models.Tours(tour_name=i)
-                    db.session.add(tour)
-                else:
-                    tour = models.Tours.query.filter_by(tour_name=i).first()
-                artist.tour.append(tour)
-                db.session.commit()
-
-        if key_info["part of:"] != 0:
-            for i in key_info["part of:"]:
-                nominate = None
-                if len(models.Nominates.query.filter_by(nominate_name=i).all()) == 0:
-                    nominate = models.Nominates(nominate_name=i)
-                    db.session.add(nominate)
-                else:
-                    nominate = models.Nominates.query.filter_by(nominate_name=i).first()
-                artist.nominate.append(nominate)
-                db.session.commit()
+def musicbrainz_soup_page_info_extract(url):
+    soup = request_page_with_webdriver(url, "musicbrainz")
+    url_dic = musicbrainz_album_url_extract(soup)
+    name = soup.find('div', class_=['artistheader', 'person-icon']).find("bdi").get_text()
+    property = soup.find('dl', class_='properties')
+    # name = property.find('dd', class_='sort-name').get_text()
+    gender = property.find('dd', class_='gender').get_text()
+    born = property.find('dd', class_='begin-date').get_text()
+    born = born.split(' ')[0]
+    born = datetime.date(*map(int, born.split('-')))
+    print(name, gender, born)
+    artist_query = models.Artist.query.filter_by(artist_name=name, gender=gender, Born=born).all()
+    artist = None
+    if len(artist_query) != 0:
+        artist = artist_query[0]
         musicbrainz_album_info_extract(url_dic, artist)
+        return
 
+    wiki_content = musicbrainz_wiki_content_extract(soup)
+    tabs = soup.find('ul', class_='tabs')
+    tabs = tabs.find_all('a')
+    relation_url = "https://musicbrainz.org/" + tabs[5]['href']
+    key_info = musicbrainz_artist_relationship_extract(relation_url)
+    tags_url = "https://musicbrainz.org/" + tabs[7]['href']
+    tagDic = musicbrainz_artist_tag_extract(tags_url)
+
+    artist = models.Artist(artist_name=name, gender=gender, Born=born, wikipedia=wiki_content, tags=str(tagDic))
+    db.session.add(artist)
+    db.session.commit()
+    if key_info["member of:"] != 0:
+        for i in key_info["member of:"]:
+            band = None
+            if len(models.Bands.query.filter_by(band_name=i).all()) == 0:
+                band = models.Bands(band_name=i)
+                db.session.add(band)
+            else:
+                band = models.Bands.query.filter_by(band_name=i).first()
+            artist.band.append(band)
+            db.session.commit()
+
+    if key_info["tours:"] != 0:
+        for i in key_info["tours:"]:
+            tour = None
+            if len(models.Tours.query.filter_by(tour_name=i).all()) == 0:
+                tour = models.Tours(tour_name=i)
+                db.session.add(tour)
+            else:
+                tour = models.Tours.query.filter_by(tour_name=i).first()
+            artist.tour.append(tour)
+            db.session.commit()
+
+    if key_info["part of:"] != 0:
+        for i in key_info["part of:"]:
+            nominate = None
+            if len(models.Nominates.query.filter_by(nominate_name=i).all()) == 0:
+                nominate = models.Nominates(nominate_name=i)
+                db.session.add(nominate)
+            else:
+                nominate = models.Nominates.query.filter_by(nominate_name=i).first()
+            artist.nominate.append(nominate)
+            db.session.commit()
+    musicbrainz_album_info_extract(url_dic, artist)
+
+
+
+def append_search_list(url):
+    search_dic={}
+    soup=request_page_with_webdriver(url)
+    trs = soup.findAll("tr", attrs={"role":"row"})
+    for tr in trs[1:]:
+        print(tr.findAll("td", attrs={"role":"cell"})[3].get_text())
+        search_dic[tr.findAll("td", attrs={"role":"cell"})[3].get_text()]=tr.findAll("td", attrs={"role":"cell"})[3].find('a')['href']
+
+    ul=soup.find('ul', class_="pagination")
+    while ul.find_all('li')[-1].find('a')!=None:
+        soup = request_page_with_webdriver(ul.find_all('li')[-1].find('a')['href'])
+        trs = soup.findAll("tr", attrs={"role": "row"})
+        for tr in trs[1:]:
+            print(tr.findAll("td", attrs={"role": "cell"})[3].get_text())
+            search_dic[tr.findAll("td", attrs={"role": "cell"})[3].get_text()] = \
+            tr.findAll("td", attrs={"role": "cell"})[3].find('a')['href']
+        ul = soup.find('ul', class_="pagination")
+        print(search_dic)
+
+
+    return list(set(search_dic.values()))
 
 if __name__ == "__main__":
-
+    ''' 
+    urlss=["https://musicbrainz.org/series/8668518f-4a1e-4802-8b0d-81703ced6418","https://musicbrainz.org/series/64249380-b076-4a9d-aa41-e617d81fa1c9"]
+    search_list=[]
+    for urls in urlss:
+        get_list=append_search_list(urls)
+        search_list+=get_list
+    for i in set(search_list):
+        new_search_term=models.Search_list(nominate_url=i)
+        db.session.add(new_search_term)
+        db.session.commit()
+    
     keywords = {"album": 0, "artist": "taylor swift", "single": 0}
     website = ["musicbrainz"]
     strcode = ""
@@ -471,5 +651,12 @@ if __name__ == "__main__":
     url = search_url_parse(keywords, strcode, website[0])
     # 打开数据库连接
     url = soup_search_url_extract(strcode, website[0], url)
-    musicbrainz_soup_page_info_extract(strcode, url)
-    print(str([1, 2, 3, 4]))
+    '''
+    for i in models.Search_list.query.filter_by(explored=False).all():
+        musicbrainz_soup_page_info_extract("https://musicbrainz.org/"+i.nominate_url)
+        i.explored=True
+        db.session.commit()
+
+
+
+

@@ -6,6 +6,8 @@ class Album_nominates(db.Model):
     __tablename__ = 'album_nominates'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     nominate_name = db.Column(db.String(100), index=True)
+    nominate_url=db.Column(db.String(100))
+    explored=db.Column(db.BOOLEAN,default=False)
 
 album_nominate_relation = db.Table('album_nominate_relation',
     db.Column('album_nominate_id', db.Integer, db.ForeignKey('album_nominates.id')),
@@ -234,10 +236,23 @@ class Music(db.Model):
                            backref=db.backref('pianist_musics', lazy='dynamic'))
     guitarist = db.relationship('Guitarists', secondary=guitarist_relation,
                             backref=db.backref('guitarist_musics', lazy='dynamic'))
+
     electric_guitarist = db.relationship('Electric_guitarists', secondary=electric_guitarist_relation,
                             backref=db.backref('electric_guitarist_musics', lazy='dynamic'))
+
+    include_mixer=db.Column(db.BOOLEAN,default=False)
+    include_drummer = db.Column(db.BOOLEAN, default=False)
+    include_pianist = db.Column(db.BOOLEAN, default=False)
+    include_guitarist = db.Column(db.BOOLEAN, default=False)
+    include_electric_guitarist = db.Column(db.BOOLEAN, default=False)
+
     audio_file_name=db.Column(db.String(100), default="blank", index=True)
     yt_link=db.Column(db.String(100), default="blank", index=True)
     reviews=db.relationship('Music_reviews', secondary=music_review_relation,
                                backref=db.backref('review_music', lazy='dynamic'))
     music_s_tags=db.relationship("Music_and_tag_relation", back_populates="tags")
+
+class Search_list(db.Model):
+    __tablename__ = 'search_list'
+    nominate_url = db.Column(db.String(100),primary_key=True)
+    explored = db.Column(db.BOOLEAN, default=False)
