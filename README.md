@@ -18,3 +18,8 @@ The second step is to introduce deep learning methods to analysis retrieved data
 
 The last step is to build a user interface that can show the recommendation information and probably the reason of the recommondation.(data visualization)
 The flask was chosen to construct the user interface.
+
+Now the first stage finally turn to the end, which means I will now run the crawler at any time and then focus on machine learning part, 
+The good news are that some api make it possible to collect audio and lyrics 
+The pytube was used to download youtube videos and turn it to mp3 format, as it only need to get the url of target video, i don't need to worry that the ip would be blocked by youtube
+The genius api supports lyric search and download, it saves me a lot of time.
