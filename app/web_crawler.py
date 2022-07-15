@@ -217,10 +217,10 @@ def genius_info_extract(keywords):
     token = "hA1pXRwRu0mPnELzrVJzr0jru0_m7d656IeGQdwfAAdnX5RQDGXcHaavs8x3ijXO"
     genius = Genius(token)
     song = genius.search_song(keywords["single"], keywords["artist"])
-    print(song)
+    if song!=None:
+        return song.lyrics
 
-    return song
-
+    return None
 
 def download_yt_audio(keywords):
     time.sleep(3)
@@ -246,12 +246,14 @@ def download_yt_audio(keywords):
             out_file = video.download(output_path='./audios')
 
             base, ext = os.path.splitext(out_file)
+
             new_file = base + '.mp3'
+            file_path=base.split('./')[1]+'.mp3'
             os.rename(out_file, new_file)
             # result of success
             print(yt.title + " has been successfully downloaded.")
 
-            return yt_url, new_file
+            return yt_url, file_path
 
     return None, None
 
@@ -452,6 +454,10 @@ def musicbrainz_album_info_extract(url_dic, artist):
             publish_year = None
             if trs[2].find("span", class_="release-date") != None:
                 publish_year = trs[2].find("span", class_="release-date").get_text()
+            if len(publish_year.split('-'))==1:
+                publish_year+="-01-01"
+            elif len(publish_year.split('-'))==2:
+                publish_year+="-01"
             website = ["rateyourmusic"]
             strcode = ""
             for p in keywords.keys():
@@ -463,10 +469,16 @@ def musicbrainz_album_info_extract(url_dic, artist):
 
             rateyourmusic_url = search_url_parse(keywords, strcode, website[0])
             info_dic = rateyourmusic_soup_page_info_extract(strcode, keywords, rateyourmusic_url)
-
+            rate_number=info_dic["rate_number"]
+            if isinstance(info_dic["rate_number"],str):
+                rate_number=info_dic["rate_number"].split(',')
+                if len(rate_number)>1:
+                    rate_number=''.join(rate_number)
+                else:
+                    rate_number=rate_number[0]
             album = models.Albums(album_name=keywords["album"], publish_year=publish_year, album_wiki=wiki_content,
                                   album_rating=info_dic["score"]
-                                  , rate_number=info_dic["rate_number"])
+                                  , rate_number=rate_number)
 
             db.session.add(album)
             db.session.commit()
@@ -543,13 +555,36 @@ def rateyourmusic_soup_page_info_extract(strcode, keywords, url):
 def musicbrainz_soup_page_info_extract(url):
     soup = request_page_with_webdriver(url, "musicbrainz")
     url_dic = musicbrainz_album_url_extract(soup)
-    name = soup.find('div', class_=['artistheader', 'person-icon']).find("bdi").get_text()
-    property = soup.find('dl', class_='properties')
-    # name = property.find('dd', class_='sort-name').get_text()
-    gender = property.find('dd', class_='gender').get_text()
-    born = property.find('dd', class_='begin-date').get_text()
-    born = born.split(' ')[0]
-    born = datetime.date(*map(int, born.split('-')))
+
+    name=None
+    gender=None
+    born=None
+    is_group=False
+    if soup.find('div', class_=['person-icon'])!=None:
+        name = soup.find('div', class_=['artistheader', 'person-icon']).find("bdi").get_text()
+        property = soup.find('dl', class_='properties')
+        # name = property.find('dd', class_='sort-name').get_text()
+        gender = property.find('dd', class_='gender').get_text()
+        born = property.find('dd', class_='begin-date').get_text()
+        born = born.split(' ')[0]
+        if len(born.split('-')) == 1:
+            born+= "-01-01"
+        elif len(born.split('-')) == 2:
+            born += "-01"
+        born = datetime.date(*map(int, born.split('-')))
+    else:
+        is_group=True
+        name=soup.find('div', class_=['group-icon']).find("bdi").get_text()
+        property = soup.find('dl', class_='properties')
+        born = property.find('dd', class_='begin-date').get_text()
+        born = born.split(' ')[0]
+        if len(born.split('-')) == 1:
+            born+= "-01-01"
+        elif len(born.split('-')) == 2:
+            born += "-01"
+        born = datetime.date(*map(int, born.split('-')))
+        gender=None
+
     print(name, gender, born)
     artist_query = models.Artist.query.filter_by(artist_name=name, gender=gender, Born=born).all()
     artist = None
@@ -566,7 +601,7 @@ def musicbrainz_soup_page_info_extract(url):
     tags_url = "https://musicbrainz.org/" + tabs[7]['href']
     tagDic = musicbrainz_artist_tag_extract(tags_url)
 
-    artist = models.Artist(artist_name=name, gender=gender, Born=born, wikipedia=wiki_content, tags=str(tagDic))
+    artist = models.Artist(artist_name=name, gender=gender, Born=born, wikipedia=wiki_content, tags=str(tagDic), is_group=is_group)
     db.session.add(artist)
     db.session.commit()
     if key_info["member of:"] != 0:
@@ -628,7 +663,7 @@ def append_search_list(url):
     return list(set(search_dic.values()))
 
 if __name__ == "__main__":
-    ''' 
+    '''
     urlss=["https://musicbrainz.org/series/8668518f-4a1e-4802-8b0d-81703ced6418","https://musicbrainz.org/series/64249380-b076-4a9d-aa41-e617d81fa1c9"]
     search_list=[]
     for urls in urlss:

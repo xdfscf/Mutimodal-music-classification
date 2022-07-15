@@ -17,7 +17,7 @@ album_nominate_relation = db.Table('album_nominate_relation',
 class Album_reviews(db.Model):
     __tablename__ = 'album_reviews'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    review = db.Column(db.String(1000), index=True)
+    review = db.Column(db.Text)
     rating= db.Column(db.DECIMAL(5,2), default=0)
 
 album_review_relation = db.Table('album_review_relation',
@@ -30,7 +30,7 @@ class Albums(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     album_name = db.Column(db.String(100), index=True)
     publish_year = db.Column(db.DateTime, default=datetime(1800, 1, 1))
-    album_wiki=db.Column(db.String(3000),default="blank",index=True)
+    album_wiki=db.Column(db.Text,default=None)
     reviews=db.relationship('Album_reviews', secondary=album_review_relation,
                                backref=db.backref('review_albums', lazy='dynamic'))
     album_rating=db.Column(db.DECIMAL(5,2), default=0)
@@ -86,10 +86,11 @@ class Artist(db.Model):
     __tablename__ = 'artist'
     id = db.Column(db.Integer, primary_key=True,autoincrement = True)
     artist_name= db.Column(db.String(50), index=True)
-    wikipedia=db.Column(db.String(3000),default="blank",index=True)
-    tags = db.Column(db.String(1000),default="blank",index=True)
-    gender = db.Column(db.String(10),default="blank",index=True)
+    wikipedia=db.Column(db.Text,default=None)
+    tags = db.Column(db.Text,default=None)
+    gender = db.Column(db.String(10),default=None,index=True)
     Born =db.Column(db.DateTime, default=datetime(1800,1,1))
+    is_group=db.Column(db.BOOLEAN,default=False)
     tribute_to = db.relationship('Tribute',
                                  foreign_keys=[Tribute.tribute_to_artist_id],
                                  backref=db.backref('tribute_to_artist', lazy='joined'),
@@ -123,48 +124,48 @@ class Guitarists(db.Model):
     __tablename__ = 'guitarists'
     id=db.Column(db.Integer, primary_key=True,autoincrement = True)
     guitarist_name=db.Column(db.String(100), index=True)
-    wikipedia = db.Column(db.String(3000), default="blank", index=True)
-    gender = db.Column(db.String(10), default="blank", index=True)
+    wikipedia = db.Column(db.Text, default=None)
+    gender = db.Column(db.String(10), default=None, index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
 class Writers(db.Model):
     __tablename__ = 'writers'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     writer_name = db.Column(db.String(100), index=True)
-    wikipedia = db.Column(db.String(3000), default="blank", index=True)
-    gender = db.Column(db.String(10), default="blank", index=True)
+    wikipedia = db.Column(db.Text, default=None)
+    gender = db.Column(db.String(10), default=None, index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
 class Drummers(db.Model):
     __tablename__ = 'drummers'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     drummer_name = db.Column(db.String(100), index=True)
-    wikipedia = db.Column(db.String(3000), default="blank", index=True)
-    gender = db.Column(db.String(10), default="blank", index=True)
+    wikipedia = db.Column(db.Text, default=None)
+    gender = db.Column(db.String(10), default=None, index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
 class Pianists(db.Model):
     __tablename__ = 'pianists'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     pianist_name = db.Column(db.String(100), index=True)
-    wikipedia = db.Column(db.String(3000), default="blank", index=True)
-    gender = db.Column(db.String(10), default="blank", index=True)
+    wikipedia = db.Column(db.Text, default=None)
+    gender = db.Column(db.String(10), default=None, index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
 class Mixers(db.Model):
     __tablename__ = 'mixers'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     mixer_name = db.Column(db.String(100), index=True)
-    wikipedia = db.Column(db.String(3000), default="blank", index=True)
-    gender = db.Column(db.String(10), default="blank", index=True)
+    wikipedia = db.Column(db.Text, default=None)
+    gender = db.Column(db.String(10), default=None, index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
 class Electric_guitarists(db.Model):
     __tablename__ = 'electric_guitarists'
     id=db.Column(db.Integer, primary_key=True,autoincrement = True)
     electric_guitarist_name=db.Column(db.String(100), index=True)
-    wikipedia = db.Column(db.String(3000), default="blank", index=True)
-    gender = db.Column(db.String(10), default="blank", index=True)
+    wikipedia = db.Column(db.Text, default=None)
+    gender = db.Column(db.String(10), default=None, index=True)
     Born = db.Column(db.DateTime, default=datetime(1800, 1, 1))
 
 electric_guitarist_relation = db.Table('electric_guitarist_relation',
@@ -198,7 +199,7 @@ guitarist_relation = db.Table('guitarist_relation',
 class Music_reviews(db.Model):
     __tablename__ = 'music_reviews'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    review = db.Column(db.String(1000), index=True)
+    review = db.Column(db.Text)
     rating = db.Column(db.DECIMAL(5, 2), default=0)
 
 music_review_relation = db.Table('music_review_relation',
@@ -209,22 +210,23 @@ class Music_tag(db.Model):
     __tablename__ = 'music_tag'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     tag_name=db.Column(db.String(40), index=True)
-    tag_s_musics = db.relationship("Music_and_tag_relation", back_populates="musics")
+    tag_s_musics = db.relationship('Music', secondary='music_and_tag_relation',
+                              backref=db.backref('music_s_tags', lazy='dynamic'), lazy='dynamic')
 
 class Music_and_tag_relation(db.Model):
     __tablename__ = 'music_and_tag_relation'
     music_id = db.Column(db.Integer, db.ForeignKey('music.id'), primary_key=True)
     tag_id = db.Column(db.Integer, db.ForeignKey('music_tag.id'), primary_key=True)
     weight=db.Column(db.Integer)
-    musics = db.relationship("Music_tag", back_populates="tag_s_musics")
-    tags = db.relationship("Music", back_populates="music_s_tags")
+
 
 class Music(db.Model):
     __tablename__ = 'music'
     id = db.Column(db.Integer, primary_key=True,autoincrement = True)
     music_name= db.Column(db.String(100), index=True)
-    music_story=db.Column(db.String(3000),default="blank",index=True)
-    lyric=db.Column(db.String(3000),default="blank",index=True)
+    music_story=db.Column(db.Text,default=None)
+    lyric=db.Column(db.Text,default=None)
+
     album_id = db.Column(db.Integer, db.ForeignKey('albums.id'))
     mixer= db.relationship('Mixers', secondary=mixer_relation,
                            backref=db.backref('mixer_musics', lazy='dynamic'))
@@ -246,13 +248,31 @@ class Music(db.Model):
     include_guitarist = db.Column(db.BOOLEAN, default=False)
     include_electric_guitarist = db.Column(db.BOOLEAN, default=False)
 
-    audio_file_name=db.Column(db.String(100), default="blank", index=True)
-    yt_link=db.Column(db.String(100), default="blank", index=True)
+    audio_file_name=db.Column(db.String(100), default=None, index=True)
+    yt_link=db.Column(db.String(100), default=None, index=True)
     reviews=db.relationship('Music_reviews', secondary=music_review_relation,
                                backref=db.backref('review_music', lazy='dynamic'))
-    music_s_tags=db.relationship("Music_and_tag_relation", back_populates="tags")
+    valid = db.Column(db.BOOLEAN, default=False)
+    label = db.Column(db.Integer, default=-1)
+    bert_tokenize = db.Column(db.Text, default=None)
+    normalized_lyric= db.Column(db.Text, default=None)
+    bert_saved = db.Column(db.BOOLEAN, default=False)
+    trash=db.Column(db.BOOLEAN, default=False)
 
 class Search_list(db.Model):
     __tablename__ = 'search_list'
     nominate_url = db.Column(db.String(100),primary_key=True)
     explored = db.Column(db.BOOLEAN, default=False)
+
+
+
+
+
+class Text_train_data(db.Model):
+
+    __tablename__ = 'train_data'
+    id = db.Column(db.Integer, primary_key=True,autoincrement = True)
+    text_data = db.Column(db.Text, default=None)
+    label= db.Column(db.Integer, default=-1)
+    one_hot_encoding=db.Column(db.Text, default=None)
+    spectrogram_file = db.Column(db.Text, default=None)
