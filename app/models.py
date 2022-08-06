@@ -276,3 +276,4 @@ class Text_train_data(db.Model):
     label= db.Column(db.Integer, default=-1)
     one_hot_encoding=db.Column(db.Text, default=None)
     spectrogram_file = db.Column(db.Text, default=None)
+    block = db.Column(db.Integer, default=-1)

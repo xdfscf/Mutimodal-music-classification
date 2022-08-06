@@ -7,6 +7,7 @@ from xmlrpc.client import DateTime
 import keras
 import librosa
 import requests
+from matplotlib import pyplot as plt
 
 from music_data_preprocessing import generate_spectrogram
 import app.models as models
@@ -21,7 +22,7 @@ import csv
 import operator
 import re
 import pandas as pd
-
+from keras.callbacks import ModelCheckpoint
 import requests
 
 import numpy as np
@@ -141,6 +142,7 @@ def top_tag_select():
                 else:
                     music.valid=False
                     db.session.commit()
+
 
 
 # Modify the dataframe df by converting all tweets to lower case.
@@ -356,9 +358,13 @@ def bert_attention_for_text_2(tfhub_handle_preprocess, tfhub_handle_encoder, out
     text_input1 = tf.keras.layers.Input(shape=(),dtype=tf.string, name='sentences1')
     preprocessing_layer = hub.KerasLayer(tfhub_handle_preprocess, name='preprocessing')
     encoder_inputs1 = preprocessing_layer(text_input1)
-    encoder = hub.KerasLayer(tfhub_handle_encoder, trainable=True, name='BERT_encoder')
+    encoder = hub.KerasLayer(tfhub_handle_encoder, trainable=False, name='BERT_encoder')
     outputs1 = encoder(encoder_inputs1)
-    outputs1= keras.layers.Flatten(name='outputs1')(outputs1['pooled_output'])
+
+    outputs1=keras.layers.Reshape(target_shape=(128, 512))(outputs1["sequence_output"])
+    outputs1= keras.layers.LSTM(128, input_shape=(128, 512))(outputs1)
+    outputs1=keras.layers.Flatten()(outputs1)
+    outputs1 = tf.keras.layers.Dense(64, activation='relu', name='dense1')(outputs1)
     output = tf.keras.layers.Dense(output_size, activation='softmax', name='output')(outputs1)
 
     return tf.keras.Model(inputs=text_input1, outputs=output)
@@ -368,38 +374,43 @@ def save_train_data():
     train_y=[]
 
     for i in music:
-       full_signal, sr = librosa.load(i.audio_file_name)
-       duration = 30
-       sample_len = full_signal.shape[0]
-       n_samples = int(sr * (duration + 10))
-       lyric = i.normalized_lyric.split(' [seq] ')
+        full_signal, sr = librosa.load(i.audio_file_name)
+        duration = 30
+        sample_len = full_signal.shape[0]
+        n_samples = int(sr * (duration + 10))
+        lyric = i.normalized_lyric.split(' [seq] ')
 
-       if sample_len <= n_samples :
+        if sample_len <= n_samples:
             i.valid = False
             db.session.commit()
-       else:
-           file_name=generate_spectrogram(signal=full_signal[sr * 5: sr * (duration + 5)], sr=sr, n_fft=2048,
-                                hop_length=1024, music=i, spectrogram_id=1)
-           data = models.Text_train_data(text_data=' [seq] '.join(lyric[:8]), label=i.label, spectrogram_file =file_name)
-           db.session.add(data)
-           db.session.commit()
-           train_y.append(i.label)
-           if sample_len >= 2 * n_samples:
-                file_name=generate_spectrogram(signal=full_signal[-sr * duration - 5:-5], sr=sr, n_fft=2048, hop_length=1024,
-                                     music=i,
-                                     spectrogram_id=2)
-                data = models.Text_train_data(text_data=' [seq] '.join(lyric[-8:]), label=i.label, spectrogram_file=file_name)
+        else:
+            file_name = generate_spectrogram(signal=full_signal[sr * 5: sr * (duration + 5)], sr=sr, n_fft=2048,
+                                             hop_length=1024, music=i, spectrogram_id=1)
+            data = models.Text_train_data(text_data=' [SEP] '.join(lyric[:8]), label=i.label,
+                                          spectrogram_file=file_name)
+            db.session.add(data)
+            db.session.commit()
+            train_y.append(i.label)
+            if sample_len >= 2 * n_samples:
+                file_name = generate_spectrogram(signal=full_signal[-sr * duration - 5:-5], sr=sr, n_fft=2048,
+                                                 hop_length=1024,
+                                                 music=i,
+                                                 spectrogram_id=2)
+                data = models.Text_train_data(text_data=' [SEP] '.join(lyric[-8:]), label=i.label,
+                                              spectrogram_file=file_name)
                 db.session.add(data)
                 db.session.commit()
                 train_y.append(i.label)
-           if sample_len > 3 * n_samples:
-                file_name=generate_spectrogram(signal=full_signal[sr * (duration + 4):sr * (duration * 2 + 4)], sr=sr, n_fft=2048,
-                                     hop_length=1024,
-                                     music=i,
-                                     spectrogram_id=3)
+            if sample_len > 3 * n_samples:
+                file_name = generate_spectrogram(signal=full_signal[sr * (duration + 4):sr * (duration * 2 + 4)], sr=sr,
+                                                 n_fft=2048,
+                                                 hop_length=1024,
+                                                 music=i,
+                                                 spectrogram_id=3)
                 for j in range(11, 0, -1):
-                    if j+8<=len(lyric):
-                        data = models.Text_train_data(text_data=' [seq] '.join(lyric[j:j+8]), label=i.label, spectrogram_file =file_name)
+                    if j + 8 <= len(lyric):
+                        data = models.Text_train_data(text_data=' [SEP] '.join(lyric[j:j + 8]), label=i.label,
+                                                      spectrogram_file=file_name)
                         db.session.add(data)
                         db.session.commit()
                         train_y.append(i.label)
@@ -407,9 +418,9 @@ def save_train_data():
 
     encoder = OneHotEncoder(handle_unknown='ignore')
     train_y = encoder.fit_transform(pd.DataFrame(train_y)).toarray()
-    data=models.Text_train_data.query.all()
+    data = models.Text_train_data.query.all()
     for j in range(len(data)):
-        data[j].one_hot_encoding=str(list(train_y[j]))
+        data[j].one_hot_encoding = str(list(train_y[j]))
         db.session.commit()
 
 def get_text_data():
@@ -441,7 +452,7 @@ def text_normalize(bert_model, bert_preprocess_model):
 
             text_test = lyric
             try:
-                i.normalized_lyric=' [seq] '.join(lyric)
+                i.normalized_lyric=' [SEP] '.join(lyric)
                 i.bert_saved=True
                 db.session.commit()
             except Exception:
@@ -453,22 +464,46 @@ def data_clean():
         lyric = lower_case(i.lyric).split('\n')
         count=0
         if lower_case(i.music_name) not in lyric[0]:
-            for j in lower_case(i.music_name).split(' '):
-                if j in lyric[0]:
-                    count+=1
-            if count<=2:
+            strings1=re.sub(r'[^A-Za-z]', '', lower_case(i.music_name))
+            strings1=strings1.replace(' ', '')
+            strings2=re.sub(r'[^A-Za-z]', '', lower_case(lyric[0]))
+            strings2=strings2.replace(' ', '')
+            if strings1 not in strings2:
                 print(i.id)
                 i.trash=True
                 i.valid=False
                 db.session.commit()
+
+def cross_section():
+    labels=[1,2,75,36,57,30]
+    for i in labels:
+        data = models.Text_train_data.query.filter_by(label=i).all()
+        number=int(len(data)/5)
+        count=0
+        section=0
+        for j in data:
+            count += 1
+            if count%number==0 and int(count/number)<5:
+                section+=1
+            j.block=section
+            db.session.commit()
+
+
+
+
 class My_Custom_Generator(keras.utils.all_utils.Sequence):
 
-    def __init__(self, batch_size):
+    def __init__(self, batch_size, block_number, type):
         self.batch_size = batch_size
-        self.lenght=len(models.Text_train_data.query.all())
+        self.block_number=block_number
+        self.type=type
+        if self.type=="train":
+            self.length =len(models.Text_train_data.query.all())-len(models.Text_train_data.query.filter_by(block=self.block_number).all())
+        elif self.type=="validate":
+            self.length =len(models.Text_train_data.query.filter_by(block=self.block_number).all())
         db.session.remove()
     def __len__(self):
-        return (np.ceil(self.lenght / float(self.batch_size))).astype(np.int)
+        return ((np.ceil(self.length / float(self.batch_size)))).astype(np.int)
 
     def __getitem__(self, idx):
         '''
@@ -483,43 +518,80 @@ class My_Custom_Generator(keras.utils.all_utils.Sequence):
         return train_x, np.asarray(batch_y).astype('float64')
         '''
 
-        data = models.Text_train_data.query.filter((models.Text_train_data.id >= idx * self.batch_size) & (
-                    models.Text_train_data.id < (idx + 1) * self.batch_size)).all()
+        if self.type=="train":
+            data = models.Text_train_data.query.filter(((models.Text_train_data.block!=self.block_number)|(models.Text_train_data.block==None))).all()
+        elif self.type == "validate":
+            data = models.Text_train_data.query.filter_by(block=self.block_number).all()
+        '''
+        if idx* self.batch_size>len(data):
+            idx=random.randint(0,np.ceil(self.length / float(self.batch_size)))
+        '''
+        data = data[idx * self.batch_size:min(len(data), (idx + 1) * self.batch_size)]
 
-        batch_x = [' [sep] '.join(i.text_data.split(' [seq] ')) for i in data]
+        batch_x = ['  '.join(i.text_data.split(' [SEP] ')) for i in data]
+
         batch_y = [ast.literal_eval(i.one_hot_encoding) for i in data]
         db.session.remove()
         return tf.constant(batch_x, dtype=tf.string), np.asarray(batch_y).astype('float64')
+
+def get_text_data(block_number,type):
+    if type == "train":
+        data = models.Text_train_data.query.filter(
+            (models.Text_train_data.block != block_number) | (models.Text_train_data.block == None)).all()
+    elif type == "validate":
+        data = models.Text_train_data.query.filter_by(block=block_number).all()
+    elif type=="all":
+        data = models.Text_train_data.query.all()
+    batch_x = [' [sep] '.join(i.text_data.split(' [seq] ')) for i in data]
+    batch_y = [ast.literal_eval(i.one_hot_encoding) for i in data]
+
+    db.session.remove()
+
+    return tf.constant(batch_x, dtype=tf.string), np.asarray(batch_y).astype('float64')
 
 
 if __name__ == "__main__":
     '''
     valid_data_check()
-    
     data_clean()
     top_tag_select()
-    text_normalize(bert_model, bert_preprocess_model)
-    '''
+    
+    bert_model, bert_preprocess_model, tfhub_handle_preprocess, tfhub_handle_encoder=bert_models()
 
+    text_normalize(bert_model, bert_preprocess_model)
+    
+    save_train_data()
+    cross_section()
+    '''
+    '''
     bert_model, bert_preprocess_model, tfhub_handle_preprocess, tfhub_handle_encoder = bert_models()
 
 
     
-    save_train_data()
-    
 
-    '''
     one_hot_encoding=ast.literal_eval(models.Text_train_data.query.first().one_hot_encoding)
-
+   
     classifier_model=bert_attention_for_text_2(tfhub_handle_preprocess, tfhub_handle_encoder, len(one_hot_encoding))
-    classifier_model.save('./model2.h5')
+    '''
+    filepath = "./bert-3-{epoch:02d}-{val_accuracy:.2f}.hdf5"
+    learning_rate_reduction = ReduceLROnPlateau(monitor='val_accuracy', patience=3, verbose=1, factor=0.5, min_lr=0.001)
+    checkpoint = ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
+    callbacks_list = [checkpoint, learning_rate_reduction]
+    bert_model, bert_preprocess_model, tfhub_handle_preprocess, tfhub_handle_encoder = bert_models()
 
-    model2 = Model(classifier_model.input, classifier_model.get_layer('BERT_encoder').output)
-    model2.save('./Bert_FEATURE_512.h5')
+    one_hot_encoding = ast.literal_eval(models.Text_train_data.query.first().one_hot_encoding)
+
+    classifier_model = bert_attention_for_text_2(tfhub_handle_preprocess, tfhub_handle_encoder, len(one_hot_encoding))
+    '''
+    classifier_model=keras.models.load_model("final_bert3.hdf5",custom_objects={'KerasLayer':hub.KerasLayer})
+    model2 = Model(classifier_model.input, classifier_model.get_layer('dense1').output)
+    model2.save('./Bert_FEAT
+    URE_512.h5')
+    '''
 
     loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
     metrics = tf.metrics.BinaryAccuracy()
-    epochs = 5
+    
 
 
 
@@ -528,14 +600,22 @@ if __name__ == "__main__":
                                               num_train_steps=200,
                                               num_warmup_steps=20,
                                               optimizer_type='adamw')
-    classifier_model.compile(optimizer=optimizer,
-                             loss=loss,
-                             metrics=metrics)
+    classifier_model.compile(optimizer="Adam", loss="categorical_crossentropy", metrics=["accuracy"])
 
 
-    train_generator=My_Custom_Generator( 32)
-
-    history = classifier_model.fit_generator(generator=train_generator, epochs=5, shuffle=True)
-    '''
-
+    train_generator=My_Custom_Generator(20,3,"train")
+    valid_generator=My_Custom_Generator(20,3,"validate")
+    history = classifier_model.fit_generator(generator=train_generator,validation_data = valid_generator, epochs=150, shuffle=True,callbacks=callbacks_list)
+    plt.plot(history.history['accuracy'])
+    plt.plot(history.history['val_accuracy'])
+    plt.title('bert validate 3 accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'val'], loc='upper left')
+    plt.show()
+    train_x, train_y = get_text_data(3, "train")
+    classifier_model.evaluate(train_x, train_y)
+    train_x, train_y = get_text_data(3, "validate")
+    classifier_model.evaluate(train_x, train_y)
+    classifier_model.save("./final_bert3.hdf5")
 

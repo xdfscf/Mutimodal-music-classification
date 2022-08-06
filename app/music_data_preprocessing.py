@@ -1,5 +1,5 @@
 import os
-
+from keras.callbacks import ModelCheckpoint
 import matplotlib.pyplot as plt
 import numpy as np
 import librosa
@@ -16,13 +16,14 @@ import keras
 from keras import backend as K
 from tensorflow.python.keras.callbacks import ReduceLROnPlateau
 from keras.models import Model
-
-
+import ast
+import tensorflow as tf
+from CRNN_models import website_CRNN
 def generate_spectrogram(signal, sr, n_fft, hop_length, music, spectrogram_id):
     S = librosa.feature.melspectrogram(y=signal, sr=sr, n_fft=n_fft, hop_length=hop_length)
     log_S = librosa.amplitude_to_db(S, ref=np.max)
     spectr_fname = music.music_name + str(spectrogram_id) + '.png'
-    spectr_subdir = spectro_save_dir + spectr_fname[:3] + '/'
+    spectr_subdir = spectro_save_dir + spectr_fname[:2] + '/'
 
     if not os.path.exists(spectr_subdir):
         os.makedirs(spectr_subdir)
@@ -82,7 +83,7 @@ def music_clip():
                                  music=music,
                                  spectrogram_id=3)
 def music_train_data():
-    spectrograms = models.Music_and_spectrogram_relation.query.all()
+    spectrograms = models.train_data.query.all()
     images=[]
     labels=[]
     for spectrogram in spectrograms:
@@ -163,14 +164,75 @@ def CRNN_With_attention(img_height, img_width, output_size):
 '''
 music_clip()
 '''
-if __name__ == "__main__":
-    train_x, train_y=music_train_data()
-    model = CRNN_With_attention(128,646, len(train_y[0]))
-    model.save('./model1.h5')
-    model2= Model(model.input,model.get_layer('merge').output)
-    model2.save('./CRNN_ATTENTION_FEATURE_32.h5')
-    learning_rate_reduction=ReduceLROnPlateau(monitor='val_acc',patience=3,verbose=1,factor=0.5, min_lr=0.00001)
-    print(train_x.shape,train_y.shape)
-    x_train=train_x.reshape((len(train_x),128,646,1))
-    model.fit(np.asarray(x_train).astype('float32'),np.asarray(train_y).astype('float32'), batch_size=20,epochs=10,verbose=1, callbacks=[learning_rate_reduction])
+class My_Custom_Generator(keras.utils.all_utils.Sequence):
 
+    def __init__(self, batch_size, block_number, type):
+        self.batch_size = batch_size
+        self.block_number = block_number
+        self.type = type
+        if self.type == "train":
+            self.length = len(models.Text_train_data.query.all()) - len(
+                models.Text_train_data.query.filter_by(block=self.block_number).all())
+        elif self.type == "validate":
+            self.length = len(models.Text_train_data.query.filter_by(block=self.block_number).all())
+        db.session.remove()
+    def __len__(self):
+        return (np.ceil(self.length / float(self.batch_size))).astype(np.int)
+
+    def __getitem__(self, idx):
+        '''
+        train_x=[[],[],[],[],[]]
+        data= models.Text_train_data.query.filter((models.Text_train_data.id>=idx * self.batch_size)&(models.Text_train_data.id<(idx+1) * self.batch_size)).all()
+        batch_x = [i.text_data.split(' [seq] ')[:5] for i in data]
+        batch_y = [ast.literal_eval(i.one_hot_encoding) for i in data]
+        for paragraph in batch_x:
+            for index in range(len(paragraph)):
+                train_x[index].append(paragraph[index])
+        train_x = [tf.constant(i, dtype=tf.string) for i in train_x]
+        return train_x, np.asarray(batch_y).astype('float64')
+        '''
+        if self.type=="train":
+            data = models.Text_train_data.query.filter((models.Text_train_data.block!=self.block_number)|(models.Text_train_data.block==None)).all()
+        elif self.type == "validate":
+            data = models.Text_train_data.query.filter_by(block=self.block_number).all()
+        data=data[idx * self.batch_size:min(len(data), (idx + 1) * self.batch_size)]
+
+        batch_y=[]
+        images=[]
+        for i in data:
+            fpath = i.spectrogram_file
+            try:
+                images.append(np.asarray(Image.open(fpath).getdata()).reshape((128, 646)))
+                batch_y.append(ast.literal_eval(i.one_hot_encoding))
+            except Exception:
+                pass
+
+        images = np.array(images).astype('float32')
+        images = images.reshape((images.shape[0], 128, 646, 1))
+
+        db.session.remove()
+        return images, np.asarray(batch_y).astype('float32')
+
+if __name__ == "__main__":
+
+    model = keras.models.load_model("validate0-improvement-234-0.98.hdf5")
+    '''
+    model2 = Model(model.input, model.get_layer('lambda').output)
+    model2.save('./CRNN_ATTENTION_FEATURE_32.h5')
+    '''
+    train_generator = My_Custom_Generator(20, 0, "train")
+    valid_generator = My_Custom_Generator(20, 0, "validate")
+    filepath = "validate0-2-improvement-{epoch:02d}-{accuracy:.2f}.hdf5"
+    learning_rate_reduction = ReduceLROnPlateau(monitor='accuracy', patience=3, verbose=1, factor=0.5, min_lr=0.001)
+    checkpoint = ModelCheckpoint(filepath, monitor='accuracy', verbose=1, save_best_only=True, mode='max')
+    callbacks_list = [checkpoint, learning_rate_reduction]
+
+    history = model.fit_generator(generator=train_generator,validation_data = valid_generator, steps_per_epoch=60, epochs=250, verbose=1, callbacks=callbacks_list)
+    plt.plot(history.history['accuracy'])
+    plt.plot(history.history['val_accuracy'])
+    plt.title('CRNN-A validate 0 accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'val'], loc='upper left')
+    plt.show()
+    model.save('./final_validate0-2.hdf5')
